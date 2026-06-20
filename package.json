@@ -1,0 +1,12 @@
+{
+  "name": "ai-customer-ticket-manager",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.js",
+    "typecheck": "node scripts/typecheck.js",
+    "lint": "node scripts/lint.js",
+    "clean": "node scripts/clean.js",
+    "validate": "node scripts/validate-workspace.js"
+  }
+}

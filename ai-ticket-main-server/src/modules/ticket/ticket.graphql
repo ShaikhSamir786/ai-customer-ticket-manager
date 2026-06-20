@@ -1,0 +1,52 @@
+type Ticket {
+  id: ID!
+  subject: String!
+  message: String!
+  status: String!
+  priority: String
+  category: String
+  assignedTeam: String
+  assignedAgentId: String
+  createdByAgentId: String
+  customerId: String
+  source: String
+  confidence: Float
+  needsHumanReview: Boolean
+  suggestedReply: String
+  createdAt: String!
+  updatedAt: String!
+}
+
+input CreateTicketInput {
+  subject: String!
+  message: String!
+  customerId: String
+  source: String
+}
+
+input UpdateTicketInput {
+  status: String
+  priority: String
+  category: String
+  assignedTeam: String
+  assignedAgentId: String
+  confidence: Float
+  needsHumanReview: Boolean
+  suggestedReply: String
+}
+
+extend type Query {
+  tickets(
+    status: String
+    priority: String
+    assignedTeam: String
+    page: Int
+    limit: Int
+  ): [Ticket!]!
+  ticket(id: ID!): Ticket
+}
+
+extend type Mutation {
+  createTicket(input: CreateTicketInput!): Ticket!
+  updateTicket(id: ID!, input: UpdateTicketInput!): Ticket!
+}

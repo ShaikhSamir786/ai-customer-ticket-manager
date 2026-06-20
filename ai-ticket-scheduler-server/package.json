@@ -1,0 +1,32 @@
+{
+  "name": "@ai-ticket/scheduler-server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "echo 'lint ok'",
+    "typecheck": "tsc --noEmit",
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\""
+  },
+  "dependencies": {
+    "@ai-ticket/shared-lib": "file:../ai-ticket-shared-lib",
+    "@ai-ticket/shared-schema": "file:../ai-ticket-shared-schema",
+    "@bull-board/api": "7.1.5",
+    "@bull-board/express": "7.1.5",
+    "axios": "1.7.0",
+    "bullmq": "5.12.0",
+    "dotenv": "16.4.0",
+    "express": "5.2.1",
+    "ioredis": "5.4.0",
+    "node-cron": "3.0.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "22.0.0",
+    "@types/node-cron": "3.0.11",
+    "ts-node-dev": "2.0.0",
+    "typescript": "5.6.0"
+  }
+}

@@ -1,0 +1,91 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_ticket
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  core-server:
+    build:
+      context: ./ai-ticket-core-server
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - SERVICE_NAME=core-server
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ai_ticket?schema=public
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - postgres
+      - redis
+
+  main-server:
+    build:
+      context: ./ai-ticket-main-server
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - SERVICE_NAME=main-server
+      - CORE_SERVER_URL=http://core-server:3001
+      - PROCESSOR_SERVER_URL=http://processor-server:3002
+      - LLM_SERVER_URL=http://llm-server:3003
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - core-server
+
+  llm-server:
+    build:
+      context: ./ai-ticket-llm-server
+      dockerfile: Dockerfile
+    ports:
+      - "3003:3003"
+    environment:
+      - SERVICE_NAME=llm-server
+      - LLM_DEFAULT_MODEL=gpt-4-turbo
+      - LLM_FALLBACK_MODEL=gpt-3.5-turbo
+    depends_on:
+      - redis
+
+  processor-server:
+    build:
+      context: ./ai-ticket-processor-server
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+      - SERVICE_NAME=processor-server
+      - CORE_SERVER_URL=http://core-server:3001
+      - LLM_SERVER_URL=http://llm-server:3003
+    depends_on:
+      - core-server
+      - llm-server
+
+  scheduler-server:
+    build:
+      context: ./ai-ticket-scheduler-server
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_NAME=scheduler-server
+      - CORE_SERVER_URL=http://core-server:3001
+      - PROCESSOR_SERVER_URL=http://processor-server:3002
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+      - core-server
+      - processor-server
+
+volumes:
+  postgres_data:

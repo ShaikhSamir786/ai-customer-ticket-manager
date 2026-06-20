@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+README*
+
+# Environment files
+.env*
+!.env.sample
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+test/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Node modules - will be installed in container
+node_modules/

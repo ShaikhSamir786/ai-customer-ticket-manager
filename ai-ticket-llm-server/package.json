@@ -1,0 +1,32 @@
+{
+  "name": "@ai-ticket/llm-server",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "echo 'lint ok'",
+    "typecheck": "tsc --noEmit",
+    "clean": "if exist dist rmdir /s /q dist"
+  },
+  "dependencies": {
+    "@ai-ticket/shared-lib": "file:../ai-ticket-shared-lib",
+    "@ai-ticket/shared-schema": "file:../ai-ticket-shared-schema",
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "dotenv": "^16.4.0",
+    "openai": "^4.67.0",
+    "@anthropic-ai/sdk": "^0.30.0",
+    "axios": "^1.7.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "ts-node-dev": "^2.0.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/node": "^22.0.0"
+  }
+}
+
