@@ -1,14 +1,13 @@
 import jwt from 'jsonwebtoken';
 import config from './config';
-import { UnauthorizedError } from '@ai-ticket/shared-lib';
 import type { AuthPayload } from './rest/middlewares/auth';
 
 export interface GraphQLContext {
   user?: AuthPayload;
 }
 
-export async function createContext({ req }: { req: { headers: { authorization?: string } } }): Promise<GraphQLContext> {
-  const authHeader = req.headers.authorization;
+export async function createContext({ req }: { req: { headers?: Record<string, string | string[] | undefined> } }): Promise<GraphQLContext> {
+  const authHeader = req.headers?.authorization as string | undefined;
   if (!authHeader?.startsWith('Bearer ')) {
     return {};
   }

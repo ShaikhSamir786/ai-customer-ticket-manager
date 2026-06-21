@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import config from '../../config';
 import { UnauthorizedError } from '@ai-ticket/shared-lib';
@@ -10,10 +10,10 @@ export interface AuthPayload {
   teamId?: string;
 }
 
-export function isAuthenticated(req: Request, _res: Response, next: NextFunction): void {
-  const authHeader = req.headers.authorization;
+export function isAuthenticated(req: Request, _res: Response, next: any): void {
+  const authHeader = (req as any).headers?.authorization as string | undefined;
   if (!authHeader?.startsWith('Bearer ')) {
-    throw new UnauthorizedError('Missing or invalid authorization header');
+    return void next(new UnauthorizedError('Missing or invalid authorization header'));
   }
 
   try {
@@ -22,15 +22,15 @@ export function isAuthenticated(req: Request, _res: Response, next: NextFunction
     (req as any).user = payload;
     next();
   } catch {
-    throw new UnauthorizedError('Invalid or expired token');
+    return void next(new UnauthorizedError('Invalid or expired token'));
   }
 }
 
 export function requireRole(...roles: string[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
-    const user = (req as any).user as AuthPayload;
+  return (req: Request, _res: Response, next: any): void => {
+    const user = (req as any).user as AuthPayload | undefined;
     if (!user || !roles.includes(user.role)) {
-      throw new UnauthorizedError('Insufficient permissions');
+      return void next(new UnauthorizedError('Insufficient permissions'));
     }
     next();
   };

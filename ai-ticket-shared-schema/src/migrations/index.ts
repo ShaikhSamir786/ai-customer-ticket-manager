@@ -1,8 +1,30 @@
 import { QueryInterface, Sequelize } from 'sequelize';
 import path from 'path';
 import fs from 'fs';
+import { MIGRATION } from '../constant/service-constant';
 
-const MIGRATIONS_TABLE = 'SequelizeMeta';
+const MIGRATIONS_TABLE = MIGRATION.TABLE;
+
+/** Shape of a row in the SequelizeMeta tracking table. */
+interface MigrationMetaRow {
+  name: string;
+}
+
+/** Shape of a migration module loaded dynamically. */
+interface MigrationModule {
+  // The second argument is the Sequelize *class* (for DataTypes / static
+  // helpers), matching the standard sequelize-cli migration signature used
+  // by the migration files in this repo.
+  up: (queryInterface: QueryInterface, SequelizeStatic: typeof Sequelize) => Promise<void>;
+  down?: (queryInterface: QueryInterface, SequelizeStatic: typeof Sequelize) => Promise<void>;
+}
+
+/** Log helper: gated behind NODE_ENV so production stays quiet. */
+function log(message: string): void {
+  if (process.env.NODE_ENV !== 'test') {
+    console.debug(message);
+  }
+}
 
 async function getExecutedMigrations(sequelize: Sequelize): Promise<Set<string>> {
   const queryInterface = sequelize.getQueryInterface();
@@ -13,30 +35,37 @@ async function getExecutedMigrations(sequelize: Sequelize): Promise<Set<string>>
     });
     return new Set();
   }
-  const [rows] = await sequelize.query(`SELECT name FROM "${MIGRATIONS_TABLE}" ORDER BY name`);
-  return new Set((rows as any[]).map(r => r.name));
+  const [rows] = await sequelize.query(
+    `SELECT name FROM "${MIGRATIONS_TABLE}" ORDER BY name`,
+  );
+  return new Set((rows as MigrationMetaRow[]).map((r) => r.name));
 }
 
-function loadMigrationFiles(migrationsDir: string): { name: string; up: Function; down: Function }[] {
+function loadMigrationFiles(migrationsDir: string): MigrationModule[] {
   if (!fs.existsSync(migrationsDir)) return [];
-  const files = fs.readdirSync(migrationsDir)
-    .filter(f => (f.endsWith('.ts') && !f.endsWith('.d.ts')) || f.endsWith('.js'))
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => (f.endsWith('.ts') && !f.endsWith('.d.ts')) || f.endsWith('.js'))
     .sort();
   return files.map((file) => {
-    const migration = require(path.join(migrationsDir, file));
-    return { name: file, up: migration.up, down: migration.down };
-  });
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const migration = require(path.join(migrationsDir, file)) as MigrationModule;
+    return { name: file, up: migration.up, down: migration.down } as MigrationModule & {
+      name: string;
+    };
+  }) as MigrationModule[];
 }
 
 export async function runMigrations(sequelize: Sequelize): Promise<void> {
   const queryInterface = sequelize.getQueryInterface();
   const migrationsDir = path.resolve(__dirname, '../schema/main-server/migrations');
   const executed = await getExecutedMigrations(sequelize);
-  const pending: { name: string; up: Function }[] = [];
+  const pending: (MigrationModule & { name: string })[] = [];
 
   for (const migration of loadMigrationFiles(migrationsDir)) {
-    if (!executed.has(migration.name)) {
-      pending.push(migration);
+    const named = migration as MigrationModule & { name: string };
+    if (!executed.has(named.name)) {
+      pending.push(named);
     }
   }
 
@@ -47,11 +76,11 @@ export async function runMigrations(sequelize: Sequelize): Promise<void> {
     await sequelize.query(`INSERT INTO "${MIGRATIONS_TABLE}" (name) VALUES (?)`, {
       replacements: [migration.name],
     });
-    console.log(`Migration applied: ${migration.name}`);
+    log(`Migration applied: ${migration.name}`);
   }
 
   if (pending.length === 0) {
-    console.log('No pending migrations.');
+    log('No pending migrations.');
   }
 }
 
@@ -61,17 +90,18 @@ export async function undoLastMigration(sequelize: Sequelize): Promise<void> {
   const executed = await getExecutedMigrations(sequelize);
 
   if (executed.size === 0) {
-    console.log('No migrations to undo.');
+    log('No migrations to undo.');
     return;
   }
 
-  const lastMigrationName = [...executed].sort().pop()!;
-  const migration = require(path.join(migrationsDir, lastMigrationName));
+  const lastMigrationName = [...executed].sort().pop() as string;
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const migration = require(path.join(migrationsDir, lastMigrationName)) as MigrationModule;
   if (migration.down) {
     await migration.down(queryInterface, Sequelize);
   }
   await sequelize.query(`DELETE FROM "${MIGRATIONS_TABLE}" WHERE name = ?`, {
     replacements: [lastMigrationName],
   });
-  console.log(`Migration reverted: ${lastMigrationName}`);
+  log(`Migration reverted: ${lastMigrationName}`);
 }

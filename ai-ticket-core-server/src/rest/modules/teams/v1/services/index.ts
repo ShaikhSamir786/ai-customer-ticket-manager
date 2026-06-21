@@ -1,4 +1,4 @@
-import { Team, User } from '@ai-ticket/shared-schema';
+import { Team, User, Ticket } from '@ai-ticket/shared-schema';
 import { NotFoundError } from '@ai-ticket/shared-lib';
 
 export async function getTeams() {
@@ -11,7 +11,7 @@ export async function getTeams() {
     },
     include: [
       { model: User, as: 'members', attributes: [] },
-      { model: Team.sequelize!.model('Ticket') as any, as: 'tickets', attributes: [] },
+      { model: Ticket, as: 'tickets', attributes: [] },
     ],
     group: ['Team.id'],
     subQuery: false,
@@ -23,7 +23,7 @@ export async function getTeam(id: string) {
   const team = await Team.findByPk(id, {
     include: [
       { model: User, as: 'members', attributes: ['id', 'name', 'email', 'role'] },
-      { model: Team.sequelize!.model('Ticket') as any, as: 'tickets', limit: 5, order: [['createdAt', 'DESC']] },
+      { model: Ticket, as: 'tickets', limit: 5, order: [['createdAt', 'DESC']] },
     ],
   });
   if (!team) throw new NotFoundError('Team', id);
@@ -39,11 +39,20 @@ export async function createTeam(data: { name: string; description?: string; ski
   });
 }
 
-export async function updateTeam(id: string, data: Record<string, any>) {
+interface TeamUpdateData {
+  name?: string;
+  description?: string;
+  skills?: string[];
+  maxCapacity?: number;
+  isActive?: boolean;
+  [key: string]: unknown;
+}
+
+export async function updateTeam(id: string, data: TeamUpdateData) {
   const team = await Team.findByPk(id);
   if (!team) throw new NotFoundError('Team', id);
 
-  const updateData: Record<string, any> = {};
+  const updateData: Partial<TeamUpdateData> = {};
   if (data.name) updateData.name = data.name;
   if (data.description !== undefined) updateData.description = data.description;
   if (data.skills) updateData.skills = data.skills;

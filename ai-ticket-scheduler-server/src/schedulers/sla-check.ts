@@ -9,24 +9,41 @@ interface SlaBreachMetadata {
   currentStatus: string;
 }
 
+const BATCH_SIZE = 500;
+
 export function startSlaCheck() {
   registerScheduler('SLA Breach Check', config.slaCheckCron, async () => {
-    const pendingTickets = await Ticket.findAll({
-      where: {
-        status: { [Op.in]: [STATUS.PENDING, STATUS.TRIAGING, STATUS.ASSIGNED] },
-        createdAt: { [Op.lte]: new Date(Date.now() - config.slaThresholdMs) },
-      },
-    });
+    let offset = 0;
+    let totalBreached = 0;
 
-    for (const ticket of pendingTickets) {
-      await AuditLog.create({
+    while (true) {
+      const batch = await Ticket.findAll({
+        where: {
+          status: { [Op.in]: [STATUS.PENDING, STATUS.TRIAGING, STATUS.ASSIGNED] },
+          createdAt: { [Op.lte]: new Date(Date.now() - config.slaThresholdMs) },
+        },
+        limit: BATCH_SIZE,
+        offset,
+      });
+
+      if (batch.length === 0) break;
+
+      const audits = batch.map(ticket => ({
         ticketId: ticket.id,
         action: AUDIT_ACTION.SLA_BREACHED,
         entity: AUDIT_ENTITY.TICKET,
         entityId: ticket.id,
         metadata: { createdAt: ticket.createdAt, currentStatus: ticket.status } satisfies SlaBreachMetadata,
-      });
-      logger.warn('SLA breach detected', { ticketId: ticket.id });
+      }));
+
+      await AuditLog.bulkCreate(audits);
+      totalBreached += batch.length;
+      logger.warn('SLA breach batch', { count: batch.length, offset, total: totalBreached });
+      offset += BATCH_SIZE;
+    }
+
+    if (totalBreached > 0) {
+      logger.warn('SLA breach check complete', { totalBreached });
     }
   });
 }

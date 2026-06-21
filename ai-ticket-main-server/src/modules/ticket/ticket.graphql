@@ -17,6 +17,15 @@ type Ticket {
   updatedAt: String!
 }
 
+type TicketConnection {
+  nodes: [Ticket!]!
+  totalCount: Int!
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  page: Int!
+  limit: Int!
+}
+
 input CreateTicketInput {
   subject: String!
   message: String!
@@ -42,7 +51,7 @@ extend type Query {
     assignedTeam: String
     page: Int
     limit: Int
-  ): [Ticket!]!
+  ): TicketConnection!
   ticket(id: ID!): Ticket
 }
 

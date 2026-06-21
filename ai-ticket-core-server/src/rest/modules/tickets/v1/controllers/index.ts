@@ -1,38 +1,28 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
+import { catchAsync } from '@ai-ticket/shared-lib';
 import { createTicket, getTicket, getTickets, updateTicket, updateTicketTriage } from '../services';
 
-export async function createTicketController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const ticket = await createTicket(req.body);
-    res.status(201).json(ticket);
-  } catch (err) { next(err); }
-}
+export const createTicketController = catchAsync(async (req: Request, res: Response) => {
+  const ticket = await createTicket((req as any).body);
+  (res as any).status(201).json(ticket);
+});
 
-export async function getTicketsController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const result = await getTickets(req.query);
-    res.json(result);
-  } catch (err) { next(err); }
-}
+export const getTicketsController = catchAsync(async (req: Request, res: Response) => {
+  const result = await getTickets((req as any).query as Record<string, string>);
+  (res as any).json(result);
+});
 
-export async function getTicketController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const ticket = await getTicket(req.params.id);
-    res.json(ticket);
-  } catch (err) { next(err); }
-}
+export const getTicketController = catchAsync(async (req: Request, res: Response) => {
+  const ticket = await getTicket((req as any).params.id);
+  (res as any).json(ticket);
+});
 
-export async function updateTicketController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const ticket = await updateTicket(req.params.id, req.body);
-    res.json(ticket);
-  } catch (err) { next(err); }
-}
+export const updateTicketController = catchAsync(async (req: Request, res: Response) => {
+  const ticket = await updateTicket((req as any).params.id, (req as any).body);
+  (res as any).json(ticket);
+});
 
-export async function updateTicketTriageController(req: Request, res: Response, next: NextFunction) {
-  try {
-    const ticket = await updateTicketTriage(req.body);
-    res.json(ticket);
-  } catch (err) { next(err); }
-}
-
+export const updateTicketTriageController = catchAsync(async (req: Request, res: Response) => {
+  const ticket = await updateTicketTriage((req as any).body);
+  (res as any).json(ticket);
+});

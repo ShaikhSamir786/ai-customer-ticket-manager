@@ -1,7 +1,13 @@
 import axios from 'axios';
+import http from 'http';
+import https from 'https';
 import config from '../../../../../config';
 import { logger } from '../../../../../logger';
 import { ValidationError, ExternalServiceError } from '@ai-ticket/shared-lib';
+import type { TicketData, ProcessTicketResponse } from '../../../../../types/dto';
+
+const httpAgent = new http.Agent({ keepAlive: true, maxSockets: 10 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 10 });
 
 const TRIAGE_PROMPT = `You are an expert AI customer support ticket triage assistant. Analyze the following ticket and return a JSON object with:
 - category: one of ["billing", "technical", "account", "product", "legal", "other"]
@@ -20,41 +26,71 @@ Source Channel: {{sourceChannel}}
 
 Return ONLY valid JSON, no other text.`;
 
-export async function processTicket(ticketId: string) {
+function sanitizePrompt(input: string): string {
+  return input
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
+    .replace(/ignore previous instructions/gi, '')
+    .replace(/ignore all instructions/gi, '')
+    .replace(/system prompt/gi, '')
+    .trim();
+}
+
+function createAxiosInstance() {
+  return axios.create({
+    timeout: 25000,
+    httpAgent,
+    httpsAgent,
+  });
+}
+
+export async function processTicket(ticketId: string): Promise<ProcessTicketResponse> {
   if (!ticketId) throw new ValidationError('ticketId is required');
 
   logger.info('Processing ticket', { ticketId });
 
-  let ticket: any;
+  const api = createAxiosInstance();
+
+  let ticket: TicketData;
   try {
-    const res = await axios.get(`${config.coreServerUrl}/v1/tickets/${ticketId}`);
-    ticket = res.data;
-  } catch (err: any) {
-    logger.error('Failed to fetch ticket from core server', { ticketId, error: err.message });
+    const res = await api.get(`${config.coreServerUrl}/v1/tickets/${ticketId}`);
+    ticket = res.data as TicketData;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('Failed to fetch ticket from core server', { ticketId, error: message });
     throw new ExternalServiceError('core-server', `Failed to fetch ticket ${ticketId}`);
   }
 
+  const sanitizedSubject = sanitizePrompt(ticket.subject || '');
+  const sanitizedMessage = sanitizePrompt(ticket.message || '');
+
   const prompt = TRIAGE_PROMPT
-    .replace('{{subject}}', ticket.subject)
-    .replace('{{message}}', ticket.message)
+    .replace('{{subject}}', sanitizedSubject)
+    .replace('{{message}}', sanitizedMessage)
     .replace('{{customerTier}}', ticket.customerTier || 'standard')
     .replace('{{sourceChannel}}', ticket.sourceChannel || 'web');
 
-  let llmResult: any;
+  let llmResult: ReturnType<typeof applyRulesFallback>;
   try {
-    const res = await axios.post(`${config.llmServerUrl}/v1/analyze`, {
+    const res = await api.post(`${config.llmServerUrl}/v1/analyze`, {
       prompt,
       jsonMode: true,
       temperature: 0.2,
       maxTokens: 1000,
     });
-    llmResult = JSON.parse(res.data.content);
-  } catch (err: any) {
-    logger.error('LLM analysis failed, applying rules-based fallback', { ticketId, error: err.message });
+
+    try {
+      llmResult = JSON.parse(res.data.content);
+    } catch {
+      logger.warn('LLM returned non-JSON response, applying fallback', { ticketId });
+      llmResult = applyRulesFallback(ticket);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('LLM analysis failed, applying rules-based fallback', { ticketId, error: message });
     llmResult = applyRulesFallback(ticket);
   }
 
-  const triageResult = {
+  const triageResult: ProcessTicketResponse = {
     ticketId,
     category: llmResult.category || 'other',
     priority: llmResult.priority || 'medium',
@@ -69,10 +105,11 @@ export async function processTicket(ticketId: string) {
   };
 
   try {
-    await axios.post(`${config.coreServerUrl}/v1/tickets/update-triage`, triageResult);
+    await api.post(`${config.coreServerUrl}/v1/tickets/update-triage`, triageResult);
     logger.info('Triage result saved', { ticketId, confidence: triageResult.confidence });
-  } catch (err: any) {
-    logger.error('Failed to save triage result to core server', { ticketId, error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error('Failed to save triage result to core server', { ticketId, error: message });
     throw new ExternalServiceError('core-server', 'Failed to save triage result');
   }
 
@@ -81,7 +118,23 @@ export async function processTicket(ticketId: string) {
 
 export async function processBatch(ticketIds: string[]) {
   if (!ticketIds?.length) throw new ValidationError('ticketIds array is required');
-  return Promise.all(ticketIds.map(id => processTicket(id)));
+  const results = await Promise.allSettled(ticketIds.map(id => processTicket(id)));
+
+  const fulfilled: ProcessTicketResponse[] = [];
+  const rejected: { ticketId: string; error: string }[] = [];
+
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      fulfilled.push(result.value);
+    } else {
+      rejected.push({
+        ticketId: ticketIds[index],
+        error: result.reason?.message || String(result.reason),
+      });
+    }
+  });
+
+  return { processed: fulfilled, failed: rejected, total: ticketIds.length };
 }
 
 function mapTeam(categoryOrTeam: string): string {
@@ -99,7 +152,7 @@ function mapTeam(categoryOrTeam: string): string {
   return teamMap[categoryOrTeam?.toLowerCase()] || 'technical-support';
 }
 
-function applyRulesFallback(ticket: any) {
+function applyRulesFallback(ticket: TicketData) {
   const msg = (ticket.message || '').toLowerCase();
   const subj = (ticket.subject || '').toLowerCase();
   const combined = `${subj} ${msg}`;
@@ -144,7 +197,7 @@ function applyRulesFallback(ticket: any) {
   };
 }
 
-function generateFallbackReply(ticket: any): string {
+function generateFallbackReply(ticket: TicketData): string {
   return `Thank you for reaching out to us regarding "${ticket.subject}". Our team has received your request and is reviewing it. We will get back to you as soon as possible with an update. If this is urgent, please contact our support team directly.`;
 }
 

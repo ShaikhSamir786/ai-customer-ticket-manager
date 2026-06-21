@@ -1,7 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
+import { catchAsync } from '@ai-ticket/shared-lib';
 import { getAuditLogs } from '../services';
 
-export async function getAuditLogsController(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await getAuditLogs(req.query)); } catch (err) { next(err); }
-}
-
+export const getAuditLogsController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).json(await getAuditLogs((req as any).query as Record<string, string>));
+});

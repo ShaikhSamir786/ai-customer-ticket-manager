@@ -2,62 +2,69 @@
 
 ## Current Architecture Overview
 
-The processor-server is a **REST API for AI ticket triage orchestration**. It exposes two endpoints (`POST /v1/triage/process` for single ticket, `POST /v1/triage/batch` for bulk) that fetch a ticket from core-server, call the LLM server for analysis, and save the triage result back. A keyword-based `applyRulesFallback` engine is used when the LLM is unavailable.
+The processor-server is a **REST API for AI ticket triage orchestration**. It exposes two endpoints (`POST /v1/triage/process` for single ticket, `POST /v1/triage/batch` for bulk) that fetch a ticket from core-server, call the LLM server for analysis, and save the triage result back. A keyword-based `applyRulesFallback` engine is used when the LLM is unavailable. The `src/agents/` directory exists but is empty — the multi-agent architecture is not yet implemented.
 
 **Current structure:**
 ```
 src/
-├── index.ts              # Express bootstrap
-├── config.ts             # Config via shared-lib spread
-├── logger.ts             # Winston via shared-lib
-├── agents/               # Empty (reserved for multi-agent orchestration)
+├── index.ts                       # Express bootstrap
+├── config.ts                      # Config via shared-lib spread
+├── logger.ts                      # Winston via shared-lib
+├── agents/                        # Reserved for multi-agent orchestration (empty)
 ├── rest/
 │   ├── middlewares/
-│   │   └── error-handler.ts
-│   ├── routes/           # Empty (reserved)
-│   └── modules/triage/v1/
-│       ├── routes.ts
-│       ├── controllers/index.ts
-│       └── services/index.ts   # Core triage logic (154 lines)
+│   │   └── error-handler.ts       # Global error handler
+│   ├── modules/
+│   │   └── triage/v1/
+│   │       ├── routes.ts          # POST /process, POST /batch
+│   │       ├── controllers/       # Thin delegation to services
+│   │       └── services/          # Core triage logic (154 lines)
+│   └── routes/                    # Reserved (empty)
 └── docs/
 ```
 
+## ✅ Improvements Already Made
+
+| Issue | Original Status | Current Status |
+|---|---|---|
+| `agents/` directory | Did not exist | Now exists (empty — reserved) |
+| `rest/routes/` directory | Did not exist | Now exists (empty) |
+
 ## Folder Structure Improvements
 
-### Implement Multi-Agent Architecture
-The `src/agents/` directory is empty but the AGENTS.md specifies 9 specialized agents. Implement the agent folder structure:
-```
-src/agents/
-├── orchestrator.ts       # Plans workflow, delegates, aggregates
-├── classifier.ts         # Categorizes ticket
-├── priority-agent.ts     # Assigns urgency
-├── sentiment-agent.ts    # Emotion analysis + churn prediction
-├── routing-agent.ts      # Team assignment (skills + workload)
-├── reply-agent.ts        # Response generation via RAG
-├── escalation-agent.ts   # Flags human intervention needs
-├── qa-agent.ts           # Reviews other agents' output
-├── learning-agent.ts      # Improves from human overrides
-├── types.ts             # Shared agent interfaces
-└── index.ts             # Agent registry
-```
-
-### Extract Pipeline Stages
-Current monolithic `services/index.ts` does everything in one function. Extract:
+### Follow scheduler-server pattern
+Adopt the proven structure with `constant/`, `config/`, `handlers/`:
 ```
 src/
-├── pipeline/
-│   ├── index.ts              # Orchestrator pipeline
-│   ├── ticket-fetcher.ts     # Fetch from core-server
-│   ├── prompt-builder.ts     # Template rendering
-│   ├── llm-analyzer.ts       # LLM communication
-│   ├── fallback-engine.ts    # Rules-based fallback (extract from services/)
-│   ├── result-builder.ts     # Triage result construction
-│   └── result-persister.ts   # Save to core-server
-├── prompts/
-│   ├── triage.prompt.ts      # Prompt templates as TypeScript
-│   └── prompt-service.ts     # Load from DB or compile
-├── validators/
-│   └── triage.validator.ts   # Zod schemas for I/O
+├── index.ts
+├── config/
+│   ├── config.ts                  # Flat → directory with env-based overrides
+│   └── triage.ts                  # Triage pipeline config (thresholds, fallback settings)
+├── logger.ts
+├── constant/
+│   ├── service-constant.ts        # STATUS, AUDIT_ACTION, TRIAGE_CATEGORIES
+│   └── prompt.constant.ts         # Prompt templates as constants
+├── pipeline/                      # Extract from monolithic services/
+│   ├── orchestrator.ts            # Pipeline coordinator
+│   ├── ticket-fetcher.ts          # Fetch from core-server
+│   ├── prompt-builder.ts          # Template rendering
+│   ├── llm-analyzer.ts            # LLM communication
+│   ├── fallback-engine.ts         # Rules-based fallback
+│   └── result-persister.ts        # Save to core-server
+├── handlers/
+│   ├── triage.handler.ts          # Ticket processing handler
+│   └── batch.handler.ts           # Batch processing handler
+├── agents/                        # Multi-agent architecture (planned)
+│   ├── types.ts
+│   ├── orchestrator-agent.ts
+│   ├── classifier-agent.ts
+│   ├── priority-agent.ts
+│   └── ...
+├── rest/
+│   ├── middlewares/
+│   ├── modules/triage/v1/...
+│   └── routes/
+└── docs/
 ```
 
 ## Code Quality Improvements
@@ -67,122 +74,73 @@ src/
 - Define strong interfaces for the entire pipeline:
   ```typescript
   interface TicketData { id: string; subject: string; message: string; customerTier: string; sourceChannel: string; }
-  interface LLMAnalysisResult { category: string; priority: string; sentiment: string; assignedTeam: string; confidence: number; needsHumanReview: boolean; suggestedReply: string; churnRisk: number; }
+  interface LLMAnalysisResult { category: string; priority: string; sentiment: string; ... }
   interface TriageResult { ticketId: string; category: string; priority: string; ... }
   ```
-- **Remove `response.data as any`** in `processBatch` — type the axios response generically
 
 ### Error Handling
-- **Add axios timeout** — every HTTP call should have explicit timeout:
-  ```typescript
-  axios.get(url, { timeout: 10000 })
-  ```
-- **Add retry with exponential backoff** for transient failures (LLM server 503, network hiccups):
-  ```typescript
-  import pRetry from 'p-retry';
-  await pRetry(() => axios.post(...), { retries: 3, minTimeout: 1000 });
-  ```
+- **Add axios timeout** — every HTTP call should have explicit `timeout`
+- **Add retry with exponential backoff** for transient failures
 - **Wrap `JSON.parse(res.data.content)`** in explicit try/catch — LLM output may not be valid JSON
-- **Fix `processBatch`** — replace `Promise.all` with `Promise.allSettled` to isolate failures:
-  ```typescript
-  const results = await Promise.allSettled(ticketIds.map(id => processTicket(id)));
-  return {
-    succeeded: results.filter(r => r.status === 'fulfilled').map(r => r.value),
-    failed: results.filter(r => r.status === 'rejected').map(r => r.reason),
-  };
-  ```
+- **Fix `processBatch`** — replace `Promise.all` with `Promise.allSettled` for error isolation
 
 ### Validation
-- Add `zod` schemas for all request inputs:
-  ```typescript
-  const processTicketSchema = z.object({ ticketId: z.string().uuid() });
-  const processBatchSchema = z.object({ ticketIds: z.array(z.string().uuid()).min(1).max(100) });
-  ```
+- Add `zod` schemas for all request inputs
 - Validate LLM analysis output shape before accessing properties
 - Validate `confidence` range (0-1), `temperature` range (0-2)
-- Add response validation to catch upstream contract violations
 
 ### Logging
-- Add structured logging at each pipeline stage with timing:
-  ```typescript
-  logger.info('Pipeline stage complete', { stage: 'llm_analysis', ticketId, durationMs });
-  ```
-- Log LLM provider used, model, token count per request
+- Add structured logging at each pipeline stage with timing
 - Add correlation ID forwarding to downstream services
+- Log LLM provider used, model, token count per request
 
 ## Performance Optimizations
 
-- **Add connection pooling** for axios — reuse HTTP connections to core-server and llm-server using `axios-hooks` or keep-alive agent
-- **Batch LLM calls** for `processBatch` — process concurrently but with a semaphore limit (e.g., 5 concurrent)
-- **Cache prompt templates** in memory with TTL instead of re-fetching from core-server each time
+- **Add connection pooling** for axios — reuse HTTP connections with keep-alive agent
+- **Batch LLM calls** — process concurrently with semaphore limit
+- **Cache prompt templates** in memory with TTL
 - **Add circuit breaker** for downstream service calls (llm-server, core-server)
-- **Measure and log pipeline timing** for SLA tracking and optimization (AGENTS.md mentions SLA tracking)
 
 ## Security Enhancements
 
-- **Add prompt injection sanitization** — strip or escape control characters, special tokens, and instruction overrides from ticket content before template interpolation
-- **Validate `assignedTeam`** against configured team list — prevent arbitrary team names in triage results from LLM
-- **Add internal auth** between services — at minimum a shared API key header
-- **Sanitize logging** — ensure ticket content (PII) is not logged in production
-- **Rate limit `/v1/triage/process`** — prevent abuse from compromised services
+- **Add prompt injection sanitization** — strip control characters and instruction overrides from ticket content
+- **Validate `assignedTeam`** against configured team list
+- **Add internal auth** — shared API key header between services
+- **Sanitize logging** — ensure PII is not logged in production
 
 ## Scalability Recommendations
 
-- **Implement proper agent architecture** — the monolithic triage function should delegate to specialized agents as documented:
-  ```typescript
-  class Orchestrator {
-    async triage(ticket: TicketData): Promise<TriageResult> {
-      const category = await classifier.classify(ticket);
-      const priority = await priorityAgent.assignPriority(ticket);
-      const sentiment = await sentimentAgent.analyze(ticket);
-      const team = await routingAgent.route(category, priority);
-      const reply = await replyAgent.generate(ticket, category);
-      const qaResult = await qaAgent.review({ category, priority, sentiment, reply });
-      const needsEscalation = await escalationAgent.evaluate({ ticket, qaResult });
-      return { category, priority, sentiment, assignedTeam: team, ... };
-    }
-  }
-  ```
-- **Extract RAG (Retrieval-Augmented Generation)** for reply generation — integrate vector search (pgvector or Pinecone) as documented in Phase 4
+- **Implement proper agent architecture** — the monolithic triage function should delegate to specialized agents (Classifier, Priority, Sentiment, Routing, Reply, QA, Escalation, Learning)
+- **Extract RAG** for reply generation — integrate vector search (pgvector/Pinecone)
 - **Add event publishing** for triage completion (emit to queue for audit/metrics)
 
 ## DevOps & Infrastructure Improvements
 
+### Docker
 - **Fix Docker build** — shared-lib must be included in build context
-- Add `.dockerignore`, `HEALTHCHECK`, non-root user
-- Add `NODE_ENV=production` in final Docker stage
-- Add `/health` endpoint that checks connectivity to core-server and llm-server
+- Add `.dockerignore` (follow scheduler-server pattern)
+- Add `HEALTHCHECK` + non-root user
+- Add `/health` endpoint checking connectivity to core-server and llm-server
 - Add Prometheus metrics for pipeline duration, error rate, fallback rate
 
 ## Testing Improvements
 
 - **Add test framework** (vitest) — currently zero test infrastructure
-- **Unit tests** for:
-  - `applyRulesFallback` — comprehensive keyword matching coverage
-  - `mapTeam` — category-to-team mapping
-  - `generateFallbackReply` — template rendering
-  - Prompt builder — template interpolation correctness
-- **Integration tests** for:
-  - Full triage pipeline with mocked HTTP services (nock or msw)
-  - Fallback engine behavior when LLM is down
-  - Batch processing with partial failures
-- **Property-based tests** for prompt template handling
+- **Unit tests** for: `applyRulesFallback`, `mapTeam`, `generateFallbackReply`, prompt builder
+- **Integration tests** for: full triage pipeline with mocked HTTP (nock), fallback behavior, batch partial failures
 
 ## Developer Experience Improvements
 
 - Add real ESLint + TypeScript-ESLint config
 - Add `docker-compose.processor.yml` for local dependencies
-- Add debug logging toggle for pipeline execution tracing
-- Make `LLM_SERVER_URL` and `CORE_SERVER_URL` configurable in `.env` with defaults
+- Add path aliases to `tsconfig.json`
 
 ## Suggested New Features
 
 - **Multi-agent orchestrator** — implement all 9 agents from AGENTS.md
-- **RAG-based reply generation** — vector search over KB articles + past replies
-- **Confidence scoring detailed breakdown** — per-agent confidence, not just overall
+- **RAG-based reply generation** — vector search over KB articles
+- **Confidence scoring breakdown** — per-agent confidence, not just overall
 - **Human review queue endpoint** — return tickets flagged by escalation agent
-- **Process by scheduled SLA** — ability to re-process tickets on SLA breach
-- **Model version tracking** — log which model version produced each analysis
 - **A/B testing for prompts** — metrics per prompt template version
 
 ## Dependency Review
@@ -190,11 +148,9 @@ src/
 ### Missing / Recommended
 - `zod` — input validation
 - `p-retry` — retry with backoff
-- `opossum` or `cockatiel` — circuit breaker
-- `prom-client` — Prometheus metrics
-- `uuid` — correlation IDs
+- `opossum` — circuit breaker
+- `prom-client` — metrics
 - `vitest` + `nock` — testing
-- `morgan` or `pino-http` — access logging
 
 ## Priority Roadmap
 
@@ -205,21 +161,18 @@ src/
 4. **Fix `processBatch`** — use `Promise.allSettled` for error isolation
 5. **Remove all `any` types** — ticket, llmResult, error handling
 6. **Fix Docker build** — shared-lib missing in build context
-7. **Add correlation ID middleware** for request tracing
 
 ### Medium Priority
-8. Add Zod validation schemas for all inputs
-9. Extract pipeline stages into separate modules
-10. Implement proper agent architecture from AGENTS.md
-11. Add retry with backoff for LLM calls
-12. Add circuit breaker for downstream dependencies
-13. Add Prometheus metrics for pipeline timing
-14. Add connection reuse for axios HTTP calls
+7. Add Zod validation schemas for all inputs
+8. Extract pipeline stages into separate modules
+9. Add retry with backoff for LLM calls
+10. Add circuit breaker for downstream dependencies
+11. Add Prometheus metrics for pipeline timing
+12. Add connection reuse for axios HTTP calls
 
 ### Low Priority
-15. Add RAG-based reply generation
-16. Implement multi-agent orchestration (9 agents)
-17. A/B prompt testing with metrics
-18. Human review queue endpoint
-19. Cross-platform clean script
-20. Real ESLint + Prettier
+13. Implement multi-agent orchestration (9 agents from AGENTS.md)
+14. Add RAG-based reply generation
+15. A/B prompt testing with metrics
+16. Populate or remove empty `agents/` and `rest/routes/`
+17. Real ESLint + Prettier

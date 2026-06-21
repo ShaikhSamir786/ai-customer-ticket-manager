@@ -33,12 +33,12 @@ export async function startApolloServer(app: Express, httpServer: http.Server) {
 
   await server.start();
 
-  app.use(
+  (app as any).use(
     '/graphql',
     cors<cors.CorsRequest>(),
     express.json(),
     expressMiddleware(server, {
-      context: async ({ req }) => await createContext({ req }),
+      context: async ({ req }: { req: any }) => await createContext({ req }),
     }),
   );
 }

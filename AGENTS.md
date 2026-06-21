@@ -1,8 +1,8 @@
 # AI Customer Ticket Manager — Agent Instructions
 
-**IMPORTANT: Every AI agent operating in this workspace MUST use this file as its primary instructional foundation. Before performing any specialized task, you MUST activate the corresponding agent skill from the `@agents/` directory using the `activate_skill` tool.**
+**IMPORTANT: Every AI agent operating in this workspace MUST use this file as its primary instructional foundation. Before performing any specialized task, you MUST activate the corresponding agent skill from the `backend-skills\` or `frontend-skills\` directory using the `activate_skill` tool.**
 
-This file instructs AI agents on how to build this project. Load the appropriate specialized agent(s) from `@agents` to execute tasks, and consult `ai-ticket-project-docs/` for detailed specifications.
+This file instructs AI agents on how to build this project. Load the appropriate specialized agent(s) from `backend-skills\` or `frontend-skills\` to execute tasks, and consult `ai-ticket-project-docs/` for detailed specifications.
 
 ---
 
@@ -10,14 +10,19 @@ This file instructs AI agents on how to build this project. Load the appropriate
 
 | Agent File | Role | Skill Name (for `activate_skill`) | When to Load |
 |---|---|---|---|
-| `@agents/api-architect-agent.md` | API design, contracts, gateway config | `api-architect-agent` | Designing REST/GraphQL endpoints, OpenAPI specs, API security |
-| `@agents/audit-logging-agent.md` | Audit trails, compliance logging | `audit-logging-agent` | Implementing structured logging, audit history, compliance (use winston) |
-| `@agents/backend-engineer.md` | Full-stack backend dev team (10 roles) | `backend-engineer` | General implementation: API logic, DB, auth, caching, CI/CD |
-| `@agents/database-engineer-agent.md` | Data modeling, query optimization, migrations | `database-engineer-agent` | Schema design, Prisma models, indexing, migration planning |
-| `@agents/documentation-agent.md` | Technical docs, ADRs, runbooks | `documentation-agent` | Generating READMEs, API docs, architecture diagrams, changelogs |
-| `@agents/microservices-architect-agent.md` | Service decomposition, inter-service comm | `microservices-architect-agent` | Designing service boundaries, event-driven patterns, resilience |
-| `@agents/performance-optimization-team.md` | Latency, throughput, load testing | `performance-optimization-team` | Profiling, caching strategies, query optimization, capacity planning |
-| `@agents/security-engineering-team.md` | AppSec, IAM, cloud security, compliance | `security-engineering-team` | Auth flows, RBAC, secrets management, vulnerability scanning |
+| `backend-skills\api-architect-agent.md` | API design, contracts, gateway config | `api-architect-agent` | Designing REST/GraphQL endpoints, OpenAPI specs, API security |
+| `backend-skills\audit-logging-agent.md` | Audit trails, compliance logging | `audit-logging-agent` | Implementing structured logging, audit history, compliance (use winston) |
+| `backend-skills\backend-engineer.md` | Full-stack backend dev team (10 roles) | `backend-engineer` | General implementation: API logic, DB, auth, caching, CI/CD |
+| `backend-skills\database-engineer-agent.md` | Data modeling, query optimization, migrations | `database-engineer-agent` | Schema design, Prisma models, indexing, migration planning |
+| `backend-skills\documentation-agent.md` | Technical docs, ADRs, runbooks | `documentation-agent` | Generating READMEs, API docs, architecture diagrams, changelogs |
+| `backend-skills\microservices-architect-agent.md` | Service decomposition, inter-service comm | `microservices-architect-agent` | Designing service boundaries, event-driven patterns, resilience |
+| `backend-skills\performance-optimization-team.md` | Latency, throughput, load testing | `performance-optimization-team` | Profiling, caching strategies, query optimization, capacity planning |
+| `backend-skills\security-engineering-team.md` | AppSec, IAM, cloud security, compliance | `security-engineering-team` | Auth flows, RBAC, secrets management, vulnerability scanning |
+| `frontend-skills\Frontend-Engineering-Handbook.md` | Frontend engineering standards, code quality | `frontend-engineering-handbook` | Implementing React/Next.js UI, component architecture, state management |
+| `frontend-skills\Frontend-Design-Skill.md` | UI/UX design system, glassmorphism + spatial | `frontend-design-skill` | Building dashboards, theme setup, design tokens, layout |
+| `frontend-skills\skill1.md` | Frontend task rules, avoid generic layouts | `frontend-task-rules` | General frontend development tasks |
+| `frontend-skills\skill2.md` | Frontend aesthetics, typography, creative design | `frontend-aesthetics` | Enhancing visual design, avoiding AI-slop aesthetic |
+| `frontend-skills\skill3.md` | Intentional visual design direction | `frontend-design` | Aesthetic direction, typography choices, distinctive UI |
 
 ---
 
@@ -188,6 +193,9 @@ src/
 └── pubsub/                           # PubSub system
 ```
 
+### When configuring opencode (this tool):
+1. Activate **customize-opencode** skill before editing `opencode.json`, `.opencode/` files, or any opencode agent/skill/plugin/MCP config
+
 ### When making security-sensitive changes:
 1. Always activate **security-engineering-team** skill
 2. Run threat modeling (STRIDE) and reference OWASP Top 10
@@ -199,9 +207,9 @@ src/
 - **Stack**: Node.js, TypeScript, PostgreSQL, Sequelize, Redis, BullMQ, Docker
 - **LLM Providers**: OpenAI (GPT-4/GPT-3.5-Turbo), Anthropic (Claude), Ollama (local)
 - **Logging**: winston structured JSON logs with correlation IDs
-- **Service pattern**: Use `@agents/backend-engineer.md` team roles (ArchitectAI, APIWizard, DataModeler, etc.)
+- **Service pattern**: Use `backend-skills\backend-engineer.md` team roles (ArchitectAI, APIWizard, DataModeler, etc.)
 - **Always** read relevant `ai-ticket-project-docs/` files before implementing a feature
-- **Always** use `activate_skill` to load an agent from `@agents/` before starting work on a specialized task
+- **Always** use `activate_skill` to load an agent from `backend-skills\` or `frontend-skills\` before starting work on a specialized task
 - Run `npm run typecheck` from root after any changes (uses `scripts/typecheck.js`)
 - Build shared packages first (`npm run build` runs `scripts/build.js` with dependency-aware ordering)
 - Each repo has its own `node_modules` (not hoisted to root)

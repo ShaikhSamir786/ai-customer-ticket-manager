@@ -39,10 +39,10 @@ const server = app.listen(config.port, () => {
 const handleShutdown = async () => {
   logger.info('Shutting down scheduler server');
   server.close();
-  await worker.close();
   stopAllSchedulers();
+  await worker.close(true);
   connection.disconnect();
-  process.exit(0);
+  setTimeout(() => process.exit(0), 5000).unref();
 };
 
 process.on('SIGTERM', handleShutdown);

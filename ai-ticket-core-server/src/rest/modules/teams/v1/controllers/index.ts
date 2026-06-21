@@ -1,19 +1,19 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
+import { catchAsync } from '@ai-ticket/shared-lib';
 import { getTeams, getTeam, createTeam, updateTeam } from '../services';
 
-export async function getTeamsController(_req: Request, res: Response, next: NextFunction) {
-  try { res.json(await getTeams()); } catch (err) { next(err); }
-}
+export const getTeamsController = catchAsync(async (_req: Request, res: Response) => {
+  (res as any).json(await getTeams());
+});
 
-export async function getTeamController(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await getTeam(req.params.id)); } catch (err) { next(err); }
-}
+export const getTeamController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).json(await getTeam((req as any).params.id));
+});
 
-export async function createTeamController(req: Request, res: Response, next: NextFunction) {
-  try { res.status(201).json(await createTeam(req.body)); } catch (err) { next(err); }
-}
+export const createTeamController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).status(201).json(await createTeam((req as any).body));
+});
 
-export async function updateTeamController(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await updateTeam(req.params.id, req.body)); } catch (err) { next(err); }
-}
-
+export const updateTeamController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).json(await updateTeam((req as any).params.id, (req as any).body));
+});

@@ -1,11 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
+import { catchAsync } from '@ai-ticket/shared-lib';
 import { processTicket, processBatch } from '../services';
 
-export async function processTicketController(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await processTicket(req.body.ticketId)); } catch (err) { next(err); }
-}
+export const processTicketController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).json(await processTicket((req as any).body.ticketId));
+});
 
-export async function processBatchController(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await processBatch(req.body.ticketIds)); } catch (err) { next(err); }
-}
+export const processBatchController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).json(await processBatch((req as any).body.ticketIds));
+});
 

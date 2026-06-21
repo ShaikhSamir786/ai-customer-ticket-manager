@@ -7,58 +7,69 @@ The llm-server is a **REST API for LLM provider abstraction**. It exposes `POST 
 **Current structure:**
 ```
 src/
-├── index.ts              # Express bootstrap
-├── config.ts             # Config via shared-lib spread
-├── logger.ts             # Winston via shared-lib
+├── index.ts                       # Express bootstrap
+├── config.ts                      # Config via shared-lib spread
+├── logger.ts                      # Winston via shared-lib
 ├── providers/
-│   ├── types.ts          # LLMProvider interface + types
-│   ├── router.ts         # LLMRouter fallback chain
+│   ├── types.ts                   # LLMProvider interface + types
+│   ├── router.ts                  # LLMRouter fallback chain
 │   ├── openai-provider.ts
 │   ├── anthropic-provider.ts
 │   └── ollama-provider.ts
 ├── rest/
 │   ├── middlewares/
 │   │   └── error-handler.ts
-│   └── modules/
-│       ├── analyze/v1/   # Routes, controllers, services
-│       └── prompts/v1/   # Routes, controllers, services
+│   ├── modules/
+│   │   ├── analyze/v1/            # Routes, controllers, services
+│   │   └── prompts/v1/            # Routes, controllers, services
+│   └── routes/                    # Reserved (empty)
 └── docs/
 ```
 
+## ✅ Improvements Already Made
+
+| Issue | Original Status | Current Status |
+|---|---|---|
+| `rest/routes/` directory | Did not exist | Now exists (empty — reserved) |
+
 ## Folder Structure Improvements
 
-### Extract Shared Provider Infrastructure
+### Follow scheduler-server pattern
+Adopt the proven structure with `constant/`, `config/`, `handlers/`:
 ```
 src/
+├── index.ts
+├── config/
+│   ├── config.ts
+│   ├── llm-providers.ts           # Provider configs (model names, endpoints)
+│   └── prompts.ts                 # Prompt configs
+├── logger.ts
+├── constant/
+│   ├── service-constant.ts        # Provider names, model constants
+│   └── prompt.constant.ts         # Default prompt templates
 ├── providers/
-│   ├── types.ts               # LLMProvider interface + shared types
-│   ├── router.ts              # LLMRouter (existing)
-│   ├── base-provider.ts       # Abstract base with common logic (retry, timing, token counting)
-│   ├── openai-provider.ts     # (existing, extend from base)
-│   ├── anthropic-provider.ts  # (existing, extend from base)
-│   ├── ollama-provider.ts     # (existing, extend from base)
-│   └── provider-registry.ts   # Separated from router constructor
+│   ├── types.ts
+│   ├── router.ts
+│   ├── base-provider.ts           # Abstract base with retry, timing, token counting
+│   ├── openai-provider.ts
+│   ├── anthropic-provider.ts
+│   └── ollama-provider.ts
+├── handlers/
+│   ├── analyze.handler.ts         # Extracted from analyze services
+│   └── prompts.handler.ts         # Extracted from prompt services
 ├── rest/
-│   └── modules/
-│       ├── analyze/
-│       │   └── v1/
-│       │       ├── routes.ts
-│       │       ├── controllers/
-│       │       ├── services/
-│       │       └── validators.ts   # Zod schemas for analyze request
-│       └── prompts/
-│           └── v1/
-│               ├── routes.ts
-│               ├── controllers/
-│               ├── services/
-│               ├── validators.ts   # Zod schemas
-│               └── migrations/     # If needed
+│   ├── middlewares/
+│   ├── modules/
+│   │   ├── analyze/v1/...
+│   │   └── prompts/v1/...
+│   └── routes/
+└── docs/
 ```
 
 ## Code Quality Improvements
 
 ### Type Safety
-- **Remove `as any` casts** — especially `req.params.provider as any` in analyze controller. Add a type guard:
+- **Remove `as any` casts** — especially `req.params.provider as any`. Add type guard:
   ```typescript
   const PROVIDER_TYPES = ['openai', 'anthropic', 'ollama'] as const;
   type ProviderType = typeof PROVIDER_TYPES[number];
@@ -66,116 +77,87 @@ src/
     return PROVIDER_TYPES.includes(val as ProviderType);
   }
   ```
-- **Replace `Record<string, any>`** for `options` in `LLMProvider.analyze()` with a typed interface:
-  ```typescript
-  interface AnalyzeOptions {
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-    jsonMode?: boolean;
-  }
-  ```
-- **Fix return type duplication** in router — use `LLMResponse & { provider: string }` instead of inline type
+- **Replace `Record<string, any>`** for options with typed `AnalyzeOptions` interface
+- **Fix return type duplication** in router — use `LLMResponse & { provider: string }`
 
 ### Error Handling
-- **Preserve error details in "All providers failed"** — include which providers failed and why:
-  ```typescript
-  const errors: Array<{ provider: string; error: string }> = [];
-  // ... catch per provider
-  throw new ExternalServiceError('llm', `All providers failed: ${JSON.stringify(errors)}`);
-  ```
+- **Preserve error details in "All providers failed"** — include which providers and why
 - **Add provider-specific error handling** for rate limits (429), context length exceeded, auth failures
-- **Handle empty/partial responses** — validate `response.choices[0]` exists before accessing properties
-- **Fix `choice?.message?.content` fallback** — distinguish between empty response and error (currently both map to `''`)
+- **Handle empty/partial responses** — validate `response.choices[0]` exists
 
 ### Validation
-- Add Zod schemas for analyze request/response:
-  ```typescript
-  const analyzeSchema = z.object({
-    prompt: z.string().min(1).max(32000),
-    model: z.string().optional(),
-    temperature: z.number().min(0).max(2).optional(),
-    maxTokens: z.number().min(1).max(128000).optional(),
-    jsonMode: z.boolean().optional(),
-  });
-  ```
+- Add Zod schemas for analyze request/response
 - Add prompt template validation (validate variables match template placeholders)
 - Validate `provider` parameter against available providers
 
 ### Logging
-- Log token usage per provider request (already partially done)
-- Log model selection for each request
+- Log token usage per provider request (partially done)
 - Add correlation ID to all log entries
 - Log LLM response latency with percentile tracking
 
 ## Performance Optimizations
 
-- **Add HTTP keep-alive** for provider SDKs — OpenAI and Anthropic SDKs may create new connections per request
+- **Add HTTP keep-alive** for provider SDKs
 - **Add response caching** for identical prompts (LRU cache with TTL)
-- **Add timeout configuration** per provider — each provider SDK call should have a timeout
+- **Add timeout configuration** per provider
 - **Add concurrent request limiting** per provider to avoid rate limit spikes
-- **Stream readiness** — keep the sync interface but lay groundwork for SSE streaming
 
 ## Security Enhancements
 
-- **Sanitize prompts before sending to LLM providers** — strip potentially sensitive data based on content type
-- **Add prompt length limits** — enforce max tokens before sending to avoid cost spikes
-- **Mask API keys in logs** — ensure `config.llm.openaiApiKey` / `anthropicApiKey` are never logged
+- **Sanitize prompts before sending to LLM providers** — strip PII
+- **Add prompt length limits** to avoid cost spikes
+- **Mask API keys in logs** — ensure `config.llm.openaiApiKey` etc. are never logged
 - **Add input rate limiting** per provider to control cost
-- **Implement content filtering** on LLM responses (check for harmful/inappropriate content)
 
 ## Scalability Recommendations
 
-- **Make LLMRouter configurable** — fallback order should be settable via env var (`LLM_PROVIDER_ORDER=openai,anthropic,ollama`)
-- **Add provider health checking** — periodically verify provider connectivity and mark unavailable
-- **Implement model-based routing** — route requests to providers based on model availability, not hardcoded ordering
+- **Make LLMRouter configurable** — fallback order via env var (`LLM_PROVIDER_ORDER`)
+- **Add provider health checking** — periodically verify provider connectivity
+- **Implement model-based routing** — route based on model availability
 - **Add provider load balancing** for multi-key setups
-- **Separate LLM provider instances per tenant** for multi-tenant deployments
 
 ## DevOps & Infrastructure Improvements
 
-- **Fix Docker build** — both `ai-ticket-shared-lib` and `ai-ticket-shared-schema` must be in build context
-- Add `.dockerignore`, `HEALTHCHECK`, non-root user
+### Docker
+- **Fix Docker build** — both shared packages must be in build context
+- Add `.dockerignore` (follow scheduler-server pattern)
+- Add `HEALTHCHECK` + non-root user
 - Add `/health` endpoint with individual provider connectivity checks
-- Add Prometheus metrics: requests per provider, latency, token usage, error rate by provider
+- Add Prometheus metrics: requests per provider, latency, token usage, error rate
 
 ## Testing Improvements
 
 - **Add test framework** (vitest) — currently zero tests
 - **Provider tests**: mock HTTP responses for OpenAI/Anthropic/Ollama SDKs
 - **Router tests**: fallback behavior, preferred provider, all-providers-failed scenario
-- **Prompt template tests**: CRUD operations, version auto-increment race condition
-- **Integration tests**: full analyze flow with mocked providers
+- **Prompt template tests**: CRUD, version auto-increment race condition
 
 ## Developer Experience Improvements
 
-- Add real ESLint config
-- Add `tsconfig.json` paths aliases to fix deep imports (`../../../../../providers/router`)
-- Make `LLM_DEFAULT_MODEL` and `LLM_FALLBACK_MODEL` actually consumed in code (currently documented but not used)
-- Add `docker-compose.llm.yml` with Ollama service for local development
+- Add real ESLint config (replace `echo 'lint ok'`)
+- Add path aliases to `tsconfig.json` for clean imports
+- Make `LLM_DEFAULT_MODEL` and `LLM_FALLBACK_MODEL` actually consumed in code (documented but not used)
+- Add `docker-compose.llm.yml` with Ollama for local development
 
 ## Suggested New Features
 
-- **Streaming endpoint** — SSE-based streaming for real-time agent assist (Phase 4 requirement)
+- **Streaming endpoint** — SSE-based streaming for real-time agent assist (Phase 4)
 - **Provider-specific model list API** — `GET /v1/providers/:name/models`
-- **Prompt testing workspace** — sandbox to test prompts against models before promoting
+- **Prompt testing workspace** — sandbox to test prompts before promoting
 - **Token usage tracking** per API key for cost allocation
-- **Model fallback within a provider** — e.g., if `gpt-4` is rate-limited, fall back to `gpt-3.5-turbo`
 - **Complete prompt CRUD** — add GET/:id, PUT/:id, DELETE/:id, PATCH/:id/activate
 
 ## Dependency Review
 
 ### Issues
-- `@ai-ticket/shared-schema` is a dependency but only used by `prompts` service — consider whether prompts should be in this service or core-server
-- `LLM_FALLBACK_MODEL` and `SERVICE_NAME` env vars are documented but not consumed — dead config
+- `@ai-ticket/shared-schema` is a dependency but only used by `prompts` module — consider decoupling
+- `LLM_FALLBACK_MODEL` and `SERVICE_NAME` env vars documented but not consumed
 
 ### Missing / Recommended
 - `zod` — input validation
-- `prom-client` — Prometheus metrics
+- `prom-client` — metrics
 - `lru-cache` — response caching
-- `uuid` — correlation IDs
 - `vitest` + `nock` — testing
-- `morgan` — access logging
 
 ## Priority Roadmap
 
@@ -192,14 +174,12 @@ src/
 8. Fix deep relative imports with path aliases
 9. Make fallback provider order configurable via env
 10. Add token usage logging per request
-11. Add prompt template variable validation
-12. Add HTTP keep-alive for provider connections
+11. Add HTTP keep-alive for provider connections
 
 ### Low Priority
-13. Add streaming endpoint for real-time agent assist
-14. Add response caching with LRU
-15. Implement model-based routing
-16. Add provider health checks
-17. Complete prompt CRUD (update, delete, activate)
-18. Consume `LLM_DEFAULT_MODEL`/`LLM_FALLBACK_MODEL` from config
-19. Real ESLint + Prettier
+12. Add streaming endpoint for real-time agent assist
+13. Add response caching with LRU
+14. Complete prompt CRUD (update, delete, activate)
+15. Consume `LLM_DEFAULT_MODEL`/`LLM_FALLBACK_MODEL` from config
+16. Populate or remove empty `rest/routes/`
+17. Real ESLint + Prettier

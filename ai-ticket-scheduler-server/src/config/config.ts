@@ -16,9 +16,12 @@ function envBool(key: string, fallback: boolean): boolean {
 export default {
   ...config,
   port: envInt('SCHEDULER_SERVER_PORT', 3004),
-  serviceName: 'scheduler-server',
+  serviceName: process.env.SERVICE_NAME || 'scheduler-server',
   coreServerUrl: process.env.CORE_SERVER_URL || 'http://localhost:3001',
   processorServerUrl: process.env.PROCESSOR_SERVER_URL || 'http://localhost:3002',
+  internalApiKey: process.env.INTERNAL_API_KEY || '',
+  bullBoardPassword: process.env.BULL_BOARD_PASSWORD || 'admin',
+
   staleTicketScanCron: process.env.STALE_TICKET_SCAN_CRON || '*/15 * * * *',
   staleTicketThresholdMs: envInt('STALE_TICKET_THRESHOLD_MS', 7 * 24 * 60 * 60 * 1000),
   slaCheckCron: process.env.SLA_CHECK_CRON || '*/5 * * * *',

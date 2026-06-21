@@ -2,86 +2,94 @@
 
 ## Current Architecture Overview
 
-The shared-schema is a **Sequelize model library + migration utility** consumed by microservices via `file:../ai-ticket-shared-schema`. It defines 9 models (Team, User, Ticket, TicketMessage, OverrideHistory, AuditLog, SLAPolicy, PromptTemplate, WebhookSubscription), shared enums, auto-migration logic, and seed data. It uses `sequelize-typescript` decorators.
+The shared-schema is a **Sequelize model library + true migration system** consumed by microservices via `file:../ai-ticket-shared-schema`. It defines 10 models (Team, User, Ticket, TicketMessage, OverrideHistory, AuditLog, SLAPolicy, PromptTemplate, WebhookSubscription, Employee), shared enums, proper versioned migrations (11 migration files), seed data, and a `sequelize-client.ts` entry point. It uses `sequelize-typescript` decorators.
 
 **Current structure:**
 ```
 src/
-├── index.ts              # Barrel: model registration + exports
-├── enums.ts              # TicketStatus, TicketPriority, TicketCategory, UserRole
+├── index.ts                       # Barrel: model registration + exports
+├── sequalize-client.ts            # Dedicated Sequelize client with model registration
+├── enums.ts                       # TicketStatus, TicketPriority, TicketCategory, UserRole, Department
 ├── config/
-│   └── index.ts          # Sequelize connection factory
+│   └── index.ts                   # Sequelize connection factory
 ├── models/
-│   ├── index.ts          # Barrel re-export
-│   ├── Team.ts
-│   ├── User.ts
-│   ├── Ticket.ts
-│   ├── TicketMessage.ts
-│   ├── OverrideHistory.ts
-│   ├── AuditLog.ts
-│   ├── SLAPolicy.ts
-│   ├── PromptTemplate.ts
-│   └── WebhookSubscription.ts
+│   └── index.ts                   # Barrel re-export → schema/main-server/models
+├── schema/
+│   └── main-server/
+│       ├── models/
+│       │   ├── index.ts           # All model re-exports
+│       │   ├── Team.ts
+│       │   ├── User.ts
+│       │   ├── Ticket.ts
+│       │   ├── TicketMessage.ts
+│       │   ├── OverrideHistory.ts
+│       │   ├── AuditLog.ts
+│       │   ├── SLAPolicy.ts
+│       │   ├── PromptTemplate.ts
+│       │   ├── WebhookSubscription.ts
+│       │   └── Employee.ts        # NEW model
+│       └── migrations/
+│           ├── 20240101...-create-teams.ts         # Up to 11 versioned migrations
+│           ├── 20240101...-create-employees.ts
+│           └── 20240101...-fix-employees-id-default.ts
 ├── migrations/
-│   └── index.ts          # Auto table creation (not true migrations)
+│   └── index.ts                   # Migration runner (reads from schema/main-server/migrations/)
 ├── seeders/
-│   └── index.ts          # SLA policies + prompt templates
+│   └── index.ts                   # SLA policies + prompt templates
 └── docs/
 ```
 
+## ✅ Improvements Already Made
+
+| Issue | Original Status | Current Status |
+|---|---|---|
+| Fake migration system (`sync`) | `model.sync({ alter: false })` never applied schema changes | **Proper versioned migrations** — 11 migration files with `up`/`down`, `SequelizeMeta` tracking table |
+| No `down`/rollback support | Missing | `undoLastMigration()` function + scripts |
+| No `Employee` model | Missing | **New model** with `@PrimaryKey`, `@Default(DataType.UUIDV4)`, skills JSONB, department enum, team/user relationships |
+| Model re-exports structure | Flat `models/` directory | **`schema/main-server/models/`** — domain-namespace ready for multi-service schemas |
+| `sequelize-client.ts` | Did not exist | **Separated** from barrel index for cleaner imports |
+| `Department` enum | Missing | Added to `enums.ts` |
+| Migration scripts | Missing | `db:migrate` and `migrate:undo` npm scripts added |
+| `ts-node` devDependency | Missing | Added for migration execution |
+| `Employee` model re-export | Missing | Exported via `models/index.ts` → `schema/main-server/models/index.ts` |
+
 ## Folder Structure Improvements
 
-### True Migration System
-Replace the fake migration system (`model.sync({ alter: false })`) with proper versioned migrations:
+### Follow scheduler-server clean pattern
 ```
 src/
-├── migrations/
-│   ├── migrations.config.ts
-│   ├── 001-create-teams.ts
-│   ├── 002-create-users.ts
-│   ├── 003-create-tickets.ts
-│   ├── 004-create-ticket-messages.ts
-│   ├── 005-create-override-history.ts
-│   ├── 006-create-audit-logs.ts
-│   ├── 007-create-sla-policies.ts
-│   ├── 008-create-prompt-templates.ts
-│   ├── 009-create-webhook-subscriptions.ts
-│   └── runner.ts         # Sequelize migrations runner
-├── models/
-│   └── (existing)
-```
-
-### Separate Concerns
-```
-src/
+├── index.ts
+├── sequalize-client.ts
 ├── config/
-│   └── database.ts       # Sequelize connection
+│   └── database.ts                # Sequelize connection
 ├── enums/
-│   ├── ticket.enums.ts
-│   ├── user.enums.ts
-│   └── index.ts
-├── models/
-│   └── (existing, organized by domain)
+│   ├── index.ts                   # All enums re-exported
+│   ├── ticket.enums.ts            # TicketStatus, TicketPriority, TicketCategory
+│   ├── user.enums.ts              # UserRole
+│   └── department.enum.ts         # Department
+├── schema/
+│   └── main-server/
+│       ├── models/...
+│       └── migrations/...
+├── constant/                      # Shared constants between models
+│   └── model-constants.ts         # Default values, field lengths
 ├── migrations/
-│   └── (versioned migrations)
+│   └── index.ts                   # Migration runner (existing)
 ├── seeders/
-│   └── (existing plus admin user, default teams)
-├── types/
-│   ├── ticket.types.ts   # DTO interfaces for service layers
-│   ├── user.types.ts
+│   └── index.ts                   # Existing — good
+├── types/                         # DTOs for service layers
+│   ├── ticket.types.ts
+│   ├── employee.types.ts
 │   └── audit.types.ts
-└── validators/
-    ├── ticket.validator.ts  # Zod schemas for ticket CRUD
-    └── user.validator.ts
+└── docs/
 ```
 
 ## Code Quality Improvements
 
 ### Type Safety
-- **Replace all `as any` casts in consuming services** by exporting proper types from here
-- **Add proper typing for JSONB fields** — `AuditLog.metadata`, `PromptTemplate.metrics`, `WebhookSubscription.events` should have typed interfaces
-- **Add typed enums for string columns** — `sentiment`, `customerTier`, `sourceChannel`, `assignmentMethod` in Ticket model should use TypeScript enums or union types
-- **Type `Op`, `fn`, `col`, `literal` re-exports** in `src/index.ts` with proper generics
+- **Add proper typing for JSONB fields** — `AuditLog.metadata`, `Employee.skills`, `PromptTemplate.metrics` should have typed interfaces exported for consumers
+- **Add typed enums for string columns** — `sentiment`, `customerTier`, `sourceChannel`, `assignmentMethod` in Ticket model should use union types or enums
+- **Type `Op`, `fn`, `col`, `literal` re-exports** with proper generics
 
 ### Error Handling
 - **Fix `initializeDatabase` error handling** — currently catches and logs but resolves void without letting caller know:
@@ -90,91 +98,62 @@ src/
     await sequelize.authenticate();
     await runMigrations(sequelize);
     await runSeeders();
-  }
-  // Let caller handle errors
+  } // Let caller handle errors
   ```
 - **Add connection retry logic** — database may not be ready on first attempt
-- **Add validation hooks** in models (Sequelize `beforeValidate`) for data integrity
 
 ### Validation
 - Add `@Length`, `@IsEmail`, `@IsUrl` validation decorators to model fields
 - Add `@IsIn` for enum-like fields (`sentiment`, `customerTier`, `sourceChannel`)
-- Add check constraint validations for numeric fields (`confidence BETWEEN 0 AND 1`)
-- Add unique constraints for `(name, version)` on PromptTemplate
+- Add unique constraint for `(name, version)` on PromptTemplate
 
 ### Logging
-- Replace `console.log` for SQL queries with structured logger — pass a logger function instead of `console.log`
+- Replace `console.log` in migration runner with structured logger
 - Add migration execution logging (which migrations ran, duration)
 
 ## Performance Optimizations
 
-- **Add proper indexes** — create a migration-based index strategy:
+- **Add proper indexes via migration**:
   ```typescript
-  // Migration 010: Add performance indexes
-  queryInterface.addIndex('tickets', ['status', 'priority', 'assignedTeamId']);
-  queryInterface.addIndex('tickets', ['status', 'createdAt']);
-  queryInterface.addIndex('audit_logs', ['ticketId', 'createdAt']);
-  queryInterface.addIndex('ticket_messages', ['ticketId']);
-  queryInterface.addIndex('override_history', ['ticketId']);
+  // New migration: Add performance indexes
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_tickets_status_created ON tickets (status, created_at)`;
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_audit_logs_ticket ON audit_logs (ticket_id, created_at)`;
+  `CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ticket_messages_ticket ON ticket_messages (ticket_id)`;
   ```
-- **Normalize wide Ticket table** — consider extracting AI analysis fields into a separate `TicketAnalysis` table:
-  ```typescript
-  // Proposed: TicketAnalysis model
-  ticketId, sentiment, churnRisk, confidence, needsHumanReview,
-  suggestedReply, modelUsed, assignmentMethod, assignmentReason,
-  assignmentConfidence, assignedAt
-  ```
-- **Add model scope defaults** — `defaultScope` for common query filters
+- **Normalize wide Ticket table** — extract AI analysis fields into separate `TicketAnalysis` table (34+ AI-related columns in Ticket)
 - **Add `indexHints`** for read-heavy queries
 
 ## Security Enhancements
 
 - **Hash or encrypt `WebhookSubscription.secret`** — secrets should not be stored in plaintext
-- **Use `pg` SSL defaults** — add `dialectOptions: { ssl: { require: true, rejectUnauthorized: true } }` for production connections
-- **Add row-level security** policies for multi-tenant isolation (future)
-- **Add database audit triggers** as defense-in-depth alongside application-level audit
+- **Use `pg` SSL defaults** — add `dialectOptions: { ssl: { require: true } }` for production connections
 - **Remove sensitive field exports** — `DB_PASSWORD` should not be re-exported from `config/index.ts`
+- **Add row-level security** policies for multi-tenant isolation (future)
 
 ## Scalability Recommendations
 
 - **Add table partitioning** for high-volume tables:
   - `audit_logs` — partition by month on `createdAt`
   - `ticket_messages` — partition by month on `createdAt`
-- **Add read replica support** in Sequelize config — configure replication:
-  ```typescript
-  new Sequelize(null, null, null, {
-    dialect: 'postgres',
-    replication: {
-      read: [{ host: 'replica1', ... }],
-      write: { host: 'primary', ... },
-    },
-  });
-  ```
-- **Convert migrations to use native migration tools** (Umzug or Sequelize CLI) instead of custom `sync`
-- **Add database migration CI** — validate migrations in CI pipeline before deployment
+- **Add read replica support** in Sequelize config — configure `replication` block
+- **Add database migration CI** — validate migrations in CI before deployment
 
 ## DevOps & Infrastructure Improvements
 
 - Add `package.json` `prepare` script to auto-build on local install
-- Add `.gitignore` — currently missing, risk of committing `node_modules`/`dist`
+- Add `.gitignore` (still missing across many repos)
 - Add migration check scripts for deployment safety
-- Add database seeding idempotency checks
 
 ## Testing Improvements
 
-- **Add model unit tests** for:
-  - Enum value coverage
-  - Validation rules
-  - Association correctness (foreign keys, belongsTo, hasMany)
+- **Add model unit tests** for: enum value coverage, validation rules, association correctness
 - **Add migration tests** — create/drop tables in test database, verify index creation
 - **Add seeder tests** — verify seed data can be inserted without duplicates
-- **Use testcontainers** or in-memory SQLite for CI testing
 
 ## Developer Experience Improvements
 
-- Add proper `npm run lint` with ESLint
-- Add cross-platform `clean` script
-- Document the full database setup process in README
+- Add `npm run lint` with real ESLint
+- Fix Windows-specific `clean` script (`if exist dist rmdir`) — use cross-platform `node -e "fs.rmSync(...)"`
 - Add a script to generate TypeScript types from database schema introspection
 
 ## Suggested New Features
@@ -182,7 +161,7 @@ src/
 - **Soft-delete mixin** — add `deletedAt`, `deletedBy` columns to Ticket model
 - **Timestamps for SLA tracking** — add `firstResponseAt`, `lastActivityAt` to Ticket
 - **Tags/labels model** — support flexible ticket tagging
-- **File attachment model** — support ticket attachments (reference to file storage)
+- **File attachment model** — support ticket attachments
 - **Conversation threading** — add `parentId` to TicketMessage for reply chains
 - **Default admin user seeder** — create initial admin account on setup
 - **Default teams seeder** — create starter teams (Support, Billing, Engineering)
@@ -191,39 +170,35 @@ src/
 
 ### Issues
 - `dotenv` called at module scope — importing the package triggers `.env` loading as side effect from any service
-- `.env` path resolution (`../../.env`) is fragile — based on `__dirname` from `dist/config/`, breaks if directory structure changes
-- `reflect-metadata` globally imported — required for decorators but must be imported first in entire application
+- `.env` path resolution (`../../.env`) is fragile — based on `__dirname` from `dist/config/`
 
 ### Missing / Recommended
-- `umzug` — proper migration runner (replaces custom `sync`)
-- `zod` — validation schemas (shared across services)
+- `umzug` — standard migration runner (replace custom runner)
+- `zod` — validation schemas for shared DTOs
 - `pg-native` (optional) — faster PostgreSQL binding
-- `dotenv-expand` — env variable expansion in `.env`
 
 ## Priority Roadmap
 
 ### High Priority
-1. **Replace fake migrations with proper versioned migrations** — current `sync({ alter: false })` never applies schema changes
-2. **Add database indexes** — critical for query performance at scale
-3. **Remove `as any` from all model usages** — export proper types for consumers
-4. **Add `(name, version)` unique constraint on PromptTemplate** — prevent duplicate versions
+1. **Remove `dotenv` module-level side effect** — move to lazy loading in `loadConfig()`
+2. **Add typed interfaces for all JSONB fields** — employees, audit logs, templates
+3. **Add database indexes via migration** — critical for production performance
+4. **Add unique constraint on `(name, version)` for PromptTemplate** — prevent duplicate versions
 5. **Remove sensitive config exports** — `DB_PASSWORD` should not be re-exported
 6. **Fix `initializeDatabase` error propagation** — don't silently swallow errors
-7. **Add `.gitignore`** — prevent committing build artifacts
+7. **Fix cross-platform `clean` script**
 
 ### Medium Priority
-8. Add typed interfaces for JSONB fields
-9. Add connection retry logic
-10. Add validation decorators to model fields
-11. Add database indexing migration
-12. Normalize Ticket model — extract AI metadata into separate table
-13. Add soft-delete mixin for Ticket
-14. Add SSL configuration for production PostgreSQL
+8. Add connection retry logic
+9. Add validation decorators to model fields
+10. Normalize Ticket model — extract AI metadata
+11. Add Soft-delete mixin for Ticket
+12. Add SSL configuration for production PostgreSQL
 
 ### Low Priority
-15. Add table partitioning for audit_logs and ticket_messages
-16. Add read replica support
-17. Hash WebhookSubscription.secret at storage
-18. Add default admin/team seeders
-19. Full-text search setup with tsvector
-20. Migration CI pipeline
+13. Add table partitioning for audit_logs and ticket_messages
+14. Add read replica support
+15. Hash WebhookSubscription.secret at storage
+16. Add default admin/team seeders
+17. Migration CI pipeline
+18. Full-text search setup with tsvector

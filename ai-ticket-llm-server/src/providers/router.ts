@@ -1,4 +1,5 @@
-import { LLMProvider, ProviderType } from './types';
+import { LLMProvider, ProviderType, PROVIDER_TYPES, isProviderType } from './types';
+import type { ProviderError, LLMOptions } from './types';
 import { OpenAIProvider } from './openai-provider';
 import { AnthropicProvider } from './anthropic-provider';
 import { OllamaProvider } from './ollama-provider';
@@ -6,7 +7,7 @@ import { logger } from '../logger';
 
 export class LLMRouter {
   private providers: Map<ProviderType, LLMProvider> = new Map();
-  private fallbackOrder: ProviderType[];
+  private fallbackOrder: ProviderType[] = ['openai', 'anthropic', 'ollama'];
 
   constructor() {
     if (process.env.OPENAI_API_KEY) {
@@ -17,31 +18,47 @@ export class LLMRouter {
     }
     this.providers.set('ollama', new OllamaProvider());
 
-    this.fallbackOrder = ['openai', 'anthropic', 'ollama'];
+    const envOrder = process.env.LLM_PROVIDER_ORDER;
+    if (envOrder) {
+      const parsed = envOrder.split(',')
+        .map(s => s.trim())
+        .filter((s): s is ProviderType => isProviderType(s));
+      if (parsed.length > 0) {
+        this.fallbackOrder = parsed;
+      }
+    }
   }
 
   async analyze(
     prompt: string,
-    options?: { model?: string; temperature?: number; maxTokens?: number; jsonMode?: boolean; preferredProvider?: ProviderType }
-  ): Promise<{ content: string; model: string; provider: string; usage: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+    options?: LLMOptions & { preferredProvider?: ProviderType }
+  ) {
     const order = options?.preferredProvider
       ? [options.preferredProvider, ...this.fallbackOrder.filter(p => p !== options.preferredProvider)]
       : this.fallbackOrder;
 
+    const providerErrors: ProviderError[] = [];
+
     for (const providerType of order) {
       const provider = this.providers.get(providerType);
-      if (!provider) continue;
+      if (!provider) {
+        providerErrors.push({ provider: providerType, error: 'Not configured (no API key)' });
+        continue;
+      }
 
       try {
         const result = await provider.analyze(prompt, options);
         logger.info('LLM analysis successful', { provider: provider.name, model: result.model, totalTokens: result.usage.totalTokens });
         return { ...result, provider: provider.name };
-      } catch (err: any) {
-        logger.warn(`LLM provider ${providerType} failed`, { error: err.message });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.warn(`LLM provider ${providerType} failed`, { error: message });
+        providerErrors.push({ provider: providerType, error: message });
       }
     }
 
-    throw new Error('All LLM providers failed');
+    const errorDetail = providerErrors.map(e => `${e.provider}: ${e.error}`).join('; ');
+    throw new Error(`All LLM providers failed — ${errorDetail}`);
   }
 
   getAvailableProviders(): string[] {

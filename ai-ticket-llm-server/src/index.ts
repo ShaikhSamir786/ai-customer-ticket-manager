@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import { requestIdMiddleware } from '@ai-ticket/shared-lib';
 import config from './config';
 import { logger } from './logger';
 import { errorHandler } from './rest/middlewares/error-handler';
@@ -12,9 +13,14 @@ const app = express();
 app.use(helmet());
 app.use(cors({ origin: config.corsOrigins }));
 app.use(express.json());
+app.use(requestIdMiddleware());
 
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: config.serviceName, timestamp: new Date().toISOString() });
+app.get('/health', (_req: any, res: any) => {
+  res.json({
+    status: 'ok',
+    service: config.serviceName,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use('/v1/analyze', analyzeRoutes);

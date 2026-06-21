@@ -1,4 +1,4 @@
-import { Worker, type ConnectionOptions } from 'bullmq';
+import { Worker } from 'bullmq';
 import { logger } from '../logger';
 import connection from '../redis/connection';
 import { triageJobHandler } from '../handlers/triage.handler';
@@ -6,7 +6,7 @@ import { deadLetterHandler } from '../handlers/dead-letter.handler';
 
 export function startWorkers() {
   const worker = new Worker('ticket-triage', triageJobHandler, {
-    connection: connection as ConnectionOptions,
+    connection: connection as any,
     concurrency: 5,
   });
 

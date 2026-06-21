@@ -1,23 +1,18 @@
-import { Ticket, AuditLog, Team, User, TicketMessage } from '@ai-ticket/shared-schema';
-import { Op } from '@ai-ticket/shared-schema';
-import { NotFoundError, ValidationError } from '@ai-ticket/shared-lib';
+import { Ticket, AuditLog, Team, User, TicketMessage, OverrideHistory } from '@ai-ticket/shared-schema';
+import { sequelize } from '@ai-ticket/shared-schema';
+import { NotFoundError, ValidationError, paginationSchema } from '@ai-ticket/shared-lib';
+import type { OverrideAuditMetadata } from '@ai-ticket/shared-schema';
 import { Queue } from 'bullmq';
 import { logger } from '../../../../../logger';
+import config from '../../../../../config';
+import connection from '../../../../../redis-client';
+import type { CreateTicketDTO, TicketQueryParams, TicketUpdateData, TriageUpdateData } from '../../../../../types/dto';
 
 function getQueue() {
-  return new Queue('ticket-triage', { connection: { host: 'localhost', port: 6379 } });
+  return new Queue('ticket-triage', { connection });
 }
 
-export async function createTicket(data: {
-  customerId: string;
-  customerName?: string;
-  customerEmail?: string;
-  subject: string;
-  message: string;
-  sourceChannel?: string;
-  customerTier?: string;
-  createdByAgentId?: string;
-}) {
+export async function createTicket(data: CreateTicketDTO) {
   if (!data.customerId || !data.subject || !data.message) {
     throw new ValidationError('customerId, subject, and message are required');
   }
@@ -44,31 +39,37 @@ export async function createTicket(data: {
   return ticket;
 }
 
-export async function getTickets(query: Record<string, any>) {
-  const { status, priority, assignedTeamId, assignedAgentId, limit = '50', offset = '0' } = query;
-  const where: Record<string, any> = {};
+export async function getTickets(query: TicketQueryParams) {
+  const { status, priority, assignedTeamId, assignedAgentId } = query;
 
+  const parsed = paginationSchema.safeParse({
+    page: Math.floor(parseInt(query.offset || '0', 10) / parseInt(query.limit || '50', 10)) + 1,
+    limit: parseInt(query.limit || '50', 10),
+  });
+
+  const limit = parsed.success ? parsed.data.limit : 50;
+  const page = parsed.success ? parsed.data.page : 1;
+  const offset = (page - 1) * limit;
+
+  const where: Record<string, unknown> = {};
   if (status) where.status = status;
   if (priority) where.priority = priority;
   if (assignedTeamId) where.assignedTeamId = assignedTeamId;
   if (assignedAgentId) where.assignedAgentId = assignedAgentId;
 
-  const [tickets, total] = await Promise.all([
-    Ticket.findAll({
-      where,
-      order: [['createdAt', 'DESC']],
-      limit: parseInt(limit as string, 10),
-      offset: parseInt(offset as string, 10),
-      include: [
-        { model: Team, as: 'assignedTeam' },
-        { model: User, as: 'assignedAgent' },
-        { model: TicketMessage, as: 'messages', limit: 1, order: [['createdAt', 'DESC']] },
-      ],
-    }),
-    Ticket.count({ where }),
-  ]);
+  const { rows: tickets, count: total } = await Ticket.findAndCountAll({
+    where,
+    order: [['createdAt', 'DESC']],
+    limit,
+    offset,
+    include: [
+      { model: Team, as: 'assignedTeam' },
+      { model: User, as: 'assignedAgent' },
+      { model: TicketMessage, as: 'messages', limit: 1, order: [['createdAt', 'DESC']] },
+    ],
+  });
 
-  return { tickets, total, limit: parseInt(limit, 10), offset: parseInt(offset, 10) };
+  return { tickets, total, limit, offset, page };
 }
 
 export async function getTicket(id: string) {
@@ -77,7 +78,7 @@ export async function getTicket(id: string) {
       { model: Team, as: 'assignedTeam' },
       { model: User, as: 'assignedAgent' },
       { model: TicketMessage, as: 'messages', order: [['createdAt', 'ASC']] },
-      { model: Ticket.sequelize!.model('OverrideHistory') as any, as: 'overrideHistory', order: [['createdAt', 'DESC']], limit: 10 },
+      { model: OverrideHistory, as: 'overrideHistory', order: [['createdAt', 'DESC']], limit: 10 },
     ],
   });
 
@@ -85,52 +86,43 @@ export async function getTicket(id: string) {
   return ticket;
 }
 
-export async function updateTicket(id: string, data: Record<string, any>) {
+export async function updateTicket(id: string, data: TicketUpdateData) {
   const ticket = await Ticket.findByPk(id);
   if (!ticket) throw new NotFoundError('Ticket', id);
 
-  const updateData: Record<string, any> = {};
+  const updateData: Record<string, unknown> = {};
   const allowedFields = ['status', 'priority', 'category', 'assignedTeamId', 'assignedAgentId', 'needsHumanReview', 'overrideReason'];
 
   for (const field of allowedFields) {
-    if (data[field] !== undefined) updateData[field] = data[field];
+    if (data[field as keyof TicketUpdateData] !== undefined) updateData[field] = data[field as keyof TicketUpdateData];
   }
 
   if (data.status === 'resolved') {
     updateData.resolvedAt = new Date();
   }
 
-  await Ticket.update(updateData, { where: { id } });
+  await sequelize.transaction(async (tx) => {
+    await Ticket.update(updateData, { where: { id }, transaction: tx });
 
-  await AuditLog.create({
-    ticketId: id,
-    userId: data.updatedByAgentId,
-    action: 'ticket.updated',
-    entity: 'ticket',
-    entityId: id,
-    metadata: { changes: updateData } as any,
+    await AuditLog.create({
+      ticketId: id,
+      userId: data.updatedByAgentId,
+      action: 'ticket.updated',
+      entity: 'ticket',
+      entityId: id,
+      metadata: { changes: updateData } satisfies OverrideAuditMetadata,
+    }, { transaction: tx });
   });
 
   return Ticket.findByPk(id);
 }
 
-export async function updateTicketTriage(data: {
-  ticketId: string;
-  category: string;
-  priority: string;
-  sentiment: string;
-  assignedTeam: string;
-  confidence: number;
-  needsHumanReview: boolean;
-  suggestedReply: string;
-  modelUsed: string;
-  churnRisk?: number;
-}) {
+export async function updateTicketTriage(data: TriageUpdateData) {
   const { ticketId, ...triageData } = data;
   const ticket = await Ticket.findByPk(ticketId);
   if (!ticket) throw new NotFoundError('Ticket', ticketId);
 
-  const updateData: Record<string, any> = {
+  const updateData = {
     category: triageData.category,
     priority: triageData.priority,
     sentiment: triageData.sentiment,
@@ -143,17 +135,17 @@ export async function updateTicketTriage(data: {
     status: triageData.needsHumanReview ? 'triaged' : 'assigned',
   };
 
-  await Ticket.update(updateData, { where: { id: ticketId } });
+  await sequelize.transaction(async (tx) => {
+    await Ticket.update(updateData, { where: { id: ticketId }, transaction: tx });
 
-  await AuditLog.create({
-    ticketId,
-    action: 'triage.completed',
-    entity: 'ticket',
-    entityId: ticketId,
-    metadata: { triage: triageData } as any,
+    await AuditLog.create({
+      ticketId,
+      action: 'triage.completed',
+      entity: 'ticket',
+      entityId: ticketId,
+      metadata: { triage: triageData } satisfies OverrideAuditMetadata,
+    }, { transaction: tx });
   });
 
   return Ticket.findByPk(ticketId);
 }
-
-

@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
+import { catchAsync } from '@ai-ticket/shared-lib';
 import { getPrompts, createPrompt } from '../services';
 
-export async function getPromptsController(_req: Request, res: Response, next: NextFunction) {
-  try { res.json(await getPrompts()); } catch (err) { next(err); }
-}
+export const getPromptsController = catchAsync(async (_req: Request, res: Response) => {
+  (res as any).json(await getPrompts());
+});
 
-export async function createPromptController(req: Request, res: Response, next: NextFunction) {
-  try { res.status(201).json(await createPrompt(req.body)); } catch (err) { next(err); }
-}
+export const createPromptController = catchAsync(async (req: Request, res: Response) => {
+  (res as any).status(201).json(await createPrompt((req as any).body));
+});
 
