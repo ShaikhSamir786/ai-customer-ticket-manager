@@ -70,8 +70,11 @@ This monorepo coordinates the following services and packages:
 | [**`ai-ticket-scheduler-server`**](file:///s:/projects/ai-customer-ticket-manager/ai-ticket-scheduler-server) | Service | **Worker Daemon**: Consumes queues, triggers SLA compliance checks, and runs stale scans. |
 | [**`ai-ticket-shared-schema`**](file:///s:/projects/ai-customer-ticket-manager/ai-ticket-shared-schema) | Library | **Shared DB Schema**: Centralized database models (Sequelize) and schema migrations. |
 | [**`ai-ticket-shared-lib`**](file:///s:/projects/ai-customer-ticket-manager/ai-ticket-shared-lib) | Library | **Shared Utilities**: Logging middleware, configuration managers, queues, and error wrappers. |
+| [**`ai-ticket-web-app-react-graphql`**](file:///s:/projects/ai-customer-ticket-manager/ai-ticket-web-app-react-graphql) | Frontend | **Agent Dashboard**: Ticket list, triage panel, overrides, and analytics (React + GraphQL). |
 | [**`ai-ticket-project-docs`**](file:///s:/projects/ai-customer-ticket-manager/ai-ticket-project-docs) | Docs | System flow diagrams, database diagrams, API references, and architecture choices. |
 | [**`observability`**](file:///s:/projects/ai-customer-ticket-manager/observability) | Config | Configuration files for Prometheus metrics, Grafana dashboards, and Tempo trace collection. |
+| [**`backend-skills`**](file:///s:/projects/ai-customer-ticket-manager/backend-skills) | Skills | Specialized agent skill files for backend tasks (API, DB, security, audits, performance). |
+| [**`frontend-skills`**](file:///s:/projects/ai-customer-ticket-manager/frontend-skills) | Skills | Specialized agent skill files for frontend tasks (design system, components, aesthetics). |
 | [**`scripts`**](file:///s:/projects/ai-customer-ticket-manager/scripts) | Scripts | Internal helper utilities to build, clean, and validate all projects across the workspace. |
 
 ---
@@ -111,9 +114,13 @@ This monorepo coordinates the following services and packages:
    - `ai-ticket-scheduler-server/.env`
 
 3. **Start external dependencies**:
-   Spin up Redis, PostgreSQL, and observability instances using Docker:
+   Spin up Redis and PostgreSQL with Docker:
    ```bash
    docker-compose up -d
+   ```
+   Optionally start the PLGT observability stack (Prometheus, Loki, Grafana, Tempo):
+   ```bash
+   docker-compose -f docker-compose.observability.yml up -d
    ```
 
 ### 3. Build & Validate the Workspace
@@ -126,6 +133,9 @@ npm run build
 # Run type-checking across all services
 npm run typecheck
 
+# Run type-checking across all services
+npm run typecheck
+
 # Run linter checks
 npm run lint
 
@@ -134,6 +144,9 @@ npm run validate
 
 # Clean up all build output folders (dist/ & node_modules/ caches)
 npm run clean
+
+# Start all services in development mode (shared build + parallel dev servers)
+npm run dev
 ```
 
 ### 4. Running Services Locally
@@ -151,6 +164,6 @@ npm run dev
 
 ## 🧩 AI Agent Instructions
 
-If you are an AI assistant or coding agent working on this workspace, please refer to the detailed guidelines outlined in [**`AGENTS.md`**](file:///s:/projects/ai-customer-ticket-manager/AGENTS.md). 
+If you are an AI assistant or coding agent working on this workspace, please refer to the detailed guidelines in [**`AGENTS.md`**](file:///s:/projects/ai-customer-ticket-manager/AGENTS.md).
 
-Ensure you load the correct specialized agent skill from the `@agents/` directory using the agent instructions before tackling specialized issues (e.g. database schema migrations, API architecture changes, audit logging, security scans).
+Always activate the relevant specialized skill from [`backend-skills/`](file:///s:/projects/ai-customer-ticket-manager/backend-skills) or [`frontend-skills/`](file:///s:/projects/ai-customer-ticket-manager/frontend-skills) before tackling specialized issues (e.g. database schema migrations, API architecture changes, audit logging, frontend components).
